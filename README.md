@@ -227,10 +227,7 @@ kubectl exec deploy/sleep -n ns1 -- curl httpbingo.org/headers
 You should see `external authorization failed`
 
 
-Try again with the allowed header:
-
-
-You should see an extra header:
+Try again with the header that will tell our ext auth server to allow the request:
 
 ```bash
 kubectl exec deploy/sleep -n ns1 -- curl httpbingo.org/headers -H "x-ext-authz: allow"
