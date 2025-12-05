@@ -1,0 +1,41 @@
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: agentgateway
+  namespace: gloo-system
+spec:
+  kube:
+    agentgateway:
+      env:
+      - name: PROXY_DESTINATION
+        value: "squid-proxy.common-infrastructure:3128"
+      image:
+        registry: howardjohn
+        tag: "squid4"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  annotations:
+    ambient.istio.io/waypoint-inbound-binding: PROXY/15088
+  name: agentgateway-enterprise-waypoint
+spec:
+  controllerName: solo.io/agentgateway
+  description: Class for Istio ambient mesh waypoint with agentgateway.
+  parametersRef:
+    kind: GatewayParameters
+    group: gateway.kgateway.dev
+    name: agentgateway
+    namespace: gloo-system
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: egress-gateway
+  namespace: common-infrastructure
+spec:
+  gatewayClassName: agentgateway-enterprise-waypoint
+  listeners:
+  - name: mesh
+    port: 15008
+    protocol: HBONE

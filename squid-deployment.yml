@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: squid-config
+  namespace: common-infrastructure
+  labels:
+    app: squid-proxy
+data:
+  snippet.conf: |
+    # Define the HTTP port Squid listens on
+    http_port 3128
+    
+    acl SSL_ports port 443
+    acl SSL_ports port 80
+    acl Safe_ports port 80          # http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squid-proxy
+  namespace: common-infrastructure
+  labels:
+    app: squid-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: squid-proxy
+  template:
+    metadata:
+      labels:
+        app: squid-proxy
+    spec:
+      containers:
+      - name: squid
+        image: ubuntu/squid:latest
+        ports:
+        - containerPort: 3128
+          name: proxy
+          protocol: TCP
+        volumeMounts:
+        - name: squid-config
+          mountPath: /etc/squid/conf.d/snippet.conf
+          subPath: snippet.conf
+      volumes:
+      - name: squid-config
+        configMap:
+          name: squid-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: squid-proxy
+  namespace: common-infrastructure
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3128
+    targetPort: 3128
+    protocol: TCP
+    name: proxy
+  selector:
+    app: squid-proxy

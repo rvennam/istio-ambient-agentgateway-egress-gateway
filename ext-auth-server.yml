@@ -1,0 +1,55 @@
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  namespace: common-infrastructure
+  name: gateway-ext-auth-policy
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: egress-gateway
+  traffic:
+    extAuth:
+      backendRef:
+        name: ext-authz
+        port: 9000
+---
+# Service definition for the external authorization server
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: common-infrastructure
+  name: ext-authz
+  labels:
+    app: ext-authz
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    protocol: TCP
+    appProtocol: kubernetes.io/h2c
+  selector:
+    app: ext-authz
+---
+# Deployment configuration for the external authorization server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: common-infrastructure
+  name: ext-authz
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ext-authz
+  template:
+    metadata:
+      labels:
+        app: ext-authz
+        app.kubernetes.io/name: ext-authz
+    spec:
+      containers:
+      - image: gcr.io/istio-testing/ext-authz:1.25-dev
+        name: ext-authz
+        ports:
+        - containerPort: 9000
