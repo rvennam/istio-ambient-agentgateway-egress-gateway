@@ -84,7 +84,7 @@ global:
   hub: ${REPO}
   tag: ${ISTIO_IMAGE}
   variant: distroless
-  platform: gke # UNCOMMENT FOR GKE
+  # platform: gke # UNCOMMENT FOR GKE
 profile: ambient
 EOF
 ```
