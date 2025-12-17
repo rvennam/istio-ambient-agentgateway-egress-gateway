@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: httpbingo-static
+  namespace: common-infrastructure
+spec:
+  hosts:
+  - httpbingo.org
+  location: MESH_EXTERNAL
+  resolution: STATIC
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  endpoints:
+  - address: 2.2.2.2

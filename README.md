@@ -11,7 +11,7 @@ This repository demonstrates how to run Gloo Gateway with agentgateway proxy as 
 ```bash
 export GLOO_MESH_LICENSE_KEY=<license_key>
 
-export ISTIO_VERSION=1.28.1
+export ISTIO_VERSION=1.28.1-patch0
 export ISTIO_IMAGE=${ISTIO_VERSION}-solo
 export REPO=us-docker.pkg.dev/soloio-img/istio
 export HELM_REPO=oci://us-docker.pkg.dev/soloio-img/istio-helm
@@ -168,6 +168,12 @@ kubectl label ns common-infrastructure istio.io/use-waypoint=egress-gateway
 kubectl apply -f agentgateway.yaml
 ```
 
+Create a ServiceEntry for `httpbingo.org`
+
+```bash
+kubectl apply -f httpbin-se.yml
+```
+
 We're ready to test. Istio will send all unmatched traffic to the egress gateway (See the ztunnel helm chart for configuration). The egress gateway will then do any ext-auth checks and then forward to the squid proxy using CONNECT. 
 
 ## Deploy Sample Application in ns1 Namespace
@@ -200,7 +206,7 @@ Example output:
 Check logs in the Squid Proxy:
 
 ```bash
-kubectl logs deploy/squid-proxy -n common-infrastructure
+kubectl logs deploy/squid-proxy -n squid
 ```
 
 Example output:
