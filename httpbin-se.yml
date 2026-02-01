@@ -3,14 +3,35 @@ kind: ServiceEntry
 metadata:
   name: httpbingo-static
   namespace: common-infrastructure
+  labels:
+    istio.io/use-waypoint: egress-gateway
 spec:
   hosts:
   - httpbingo.org
   location: MESH_EXTERNAL
-  resolution: STATIC
+  resolution: DNS
   ports:
   - number: 80
     name: http
     protocol: HTTP
-  endpoints:
-  - address: 2.2.2.2
+  - number: 443
+    name: https
+    protocol: TLS
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: httpbingo-tunnel
+  namespace: common-infrastructure
+spec:
+  targetRefs:
+    - name: httpbingo.org
+      kind: Hostname
+      group: networking.istio.io
+  backend:
+    tunnel:
+      backendRef:
+        name: squid-proxy
+        kind: Service
+        namespace: squid
+        port: 3128

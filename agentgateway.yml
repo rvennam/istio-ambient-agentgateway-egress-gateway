@@ -1,40 +1,46 @@
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: GatewayParameters
+# Use custom dev image for agentgateway proxy
+# Enable access logging with the source information
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
 metadata:
   name: agentgateway
-  namespace: gloo-system
+  namespace: agentgateway-system
 spec:
-  kube:
-    agentgateway:
-      env:
-      - name: PROXY_DESTINATION
-        value: "squid-proxy.squid:3128"
-      image:
-        registry: howardjohn
-        tag: "squid4"
+  image:
+    registry: howardjohn
+    repository: agentgateway
+    tag: "squid7"
+  rawConfig:
+    config:
+      logging:
+        fields:
+          add:
+            caller: source
 ---
+# Configure it to use the provided EnterpriseAgentgatewayParameters
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
   annotations:
     ambient.istio.io/waypoint-inbound-binding: PROXY/15088
-  name: agentgateway-enterprise-waypoint
+  name: enterprise-agentgateway-waypoint
 spec:
-  controllerName: solo.io/agentgateway
+  controllerName: solo.io/enterprise-agentgateway
   description: Class for Istio ambient mesh waypoint with agentgateway.
   parametersRef:
-    kind: GatewayParameters
-    group: gateway.kgateway.dev
+    kind: EnterpriseAgentgatewayParameters
+    group: enterpriseagentgateway.solo.io
     name: agentgateway
-    namespace: gloo-system
+    namespace: agentgateway-system
 ---
+# Create the egress gateway
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: egress-gateway
   namespace: common-infrastructure
 spec:
-  gatewayClassName: agentgateway-enterprise-waypoint
+  gatewayClassName: enterprise-agentgateway-waypoint
   listeners:
   - name: mesh
     port: 15008

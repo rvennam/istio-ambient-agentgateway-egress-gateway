@@ -1,18 +1,20 @@
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: AgentgatewayPolicy
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
 metadata:
   namespace: common-infrastructure
   name: gateway-ext-auth-policy
 spec:
   targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: egress-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: egress-gateway
   traffic:
     extAuth:
       backendRef:
         name: ext-authz
+        namespace: common-infrastructure
         port: 9000
+      grpc: {}
 ---
 # Service definition for the external authorization server
 apiVersion: v1

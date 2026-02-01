@@ -1,0 +1,6 @@
+controller:
+  image:
+    # -- Set the image registry for the controller.
+    registry: "howardjohn"
+    repository: "agentgateway-controller"
+    tag: "squid6"

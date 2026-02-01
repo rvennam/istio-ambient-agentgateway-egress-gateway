@@ -2,7 +2,29 @@
 
 ![Overview](overview.png)
 
-This repository demonstrates how to run Gloo Gateway with agentgateway proxy as an egress gateway for Istio traffic, including external authentication with source identity and Dynamic Forward Proxy (DFP) with CONNECT to an external proxy.
+This repository demonstrates how to run [Agentgateway](https://docs.solo.io/agentgateway/2.1.x/) as an egress gateway for Istio traffic, including external authentication with source identity and Dynamic Forward Proxy (DFP) with CONNECT to an external proxy.
+
+
+The agentgateway is configured to operate as an **explicit forward proxy**, which is essential for compatibility with enterprise upstream proxies:
+
+- **HTTP (port 80)**: Uses standard HTTP methods (GET, POST, etc.) - NOT CONNECT
+- **HTTPS (port 443)**: Uses CONNECT method to tunnel encrypted traffic
+
+This approach is required because most enterprise proxies (including Squid) restrict the CONNECT method to port 443 only for security reasons. Attempting to use CONNECT on port 80 will result in "tunnel failed" errors.
+
+
+**HTTP (Port 80):** 
+- Uses standard HTTP methods (GET, POST, etc.) - NOT CONNECT
+- EnterpriseAgentgatewayPolicy enforces ext auth
+- Squid proxy handles regular HTTP requests
+- Result: HTTP traffic flows successfully through egress gateway → ext auth → squid → internet
+
+
+**HTTPS (Port 443):**
+- Uses CONNECT method to tunnel encrypted traffic
+- Squid proxy establishes CONNECT tunnel for TLS
+- Result: HTTPS traffic flows successfully through egress gateway → squid → internet
+> Current Limitation: Ext Auth Policy
 
 ---
 
@@ -125,22 +147,22 @@ EOF
 
 ---
 
-## Install Gloo Gateway with agentgateway
+## Install Agentgateway
 
 ```bash
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/experimental-install.yaml
 
-helm upgrade -i gloo-gateway-crds oci://us-docker.pkg.dev/solo-public/gloo-gateway/charts/gloo-gateway-crds \
---create-namespace \
---namespace gloo-system \
---version 2.1.0-beta.1
+# Apply the new AgentgatewayPolicy CRD
+kubectl apply -f agentgateway-policy-crd.yaml
 
-helm upgrade -i gloo-gateway oci://us-docker.pkg.dev/solo-public/gloo-gateway/charts/gloo-gateway \
--n gloo-system \
---version 2.1.0-beta.1 \
---set agentgateway.enabled=true \
---set-string licensing.glooGatewayLicenseKey=$GLOO_GATEWAY_LICENSE_KEY \
---set-string licensing.agentgatewayLicenseKey=$AGENTGATEWAY_LICENSE_KEY
+helm upgrade -i --create-namespace \
+--namespace agentgateway-system \
+--version 2.1.0 enterprise-agentgateway-crds oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts/enterprise-agentgateway-crds
+
+helm upgrade -i -n agentgateway-system enterprise-agentgateway oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts/enterprise-agentgateway \
+--version 2.1.0 \
+-f eagw-values.yaml \
+--set-string licensing.licenseKey=${AGENTGATEWAY_LICENSE_KEY}
 ```
 
 
@@ -151,6 +173,16 @@ This proxy can be external to the cluster but for the sake of this demo, we're g
 ```bash
 kubectl apply -f squid-deployment.yml
 ```
+
+**Important Squid Configuration:**
+
+The Squid proxy is configured to:
+- Allow CONNECT method on port 443 for HTTPS tunneling
+- Accept traffic on safe ports (80 for HTTP, 443 for HTTPS)
+- Listen on port 3128 for proxy requests
+
+This configuration is critical for HTTPS to work properly. Without `http_access allow CONNECT SSL_ports`, HTTPS requests will fail with TLS errors.
+
 ---
 
 ## agentgateway Egress Gateway
@@ -165,16 +197,18 @@ kubectl label ns common-infrastructure istio.io/use-waypoint=egress-gateway
 ### Deploy the Egress Gateway with Dynamic Forward Proxy
 
 ```bash
-kubectl apply -f agentgateway.yaml
+kubectl apply -f agentgateway.yml
 ```
 
-Create a ServiceEntry for `httpbingo.org`
+Create a ServiceEntry for `httpbingo.org` with both HTTP and HTTPS ports, and an AgentgatewayPolicy to configure the tunnel to Squid:
 
 ```bash
 kubectl apply -f httpbin-se.yml
 ```
 
-We're ready to test. Istio will send all unmatched traffic to the egress gateway (See the ztunnel helm chart for configuration). The egress gateway will then do any ext-auth checks and then forward to the squid proxy using CONNECT. 
+**Note:** The ServiceEntry now uses DNS resolution instead of STATIC. For non-wildcard hostnames like `httpbingo.org`, DNS mode works even if your cluster can't resolve external DNS - it won't actually resolve. For wildcard hostnames like `*.github.com`, use DYNAMIC_DNS resolution (Requries newer version of Istio).
+
+
 
 ## Deploy Sample Application in ns1 Namespace
 
@@ -184,10 +218,12 @@ kubectl label ns ns1 istio.io/dataplane-mode=ambient
 kubectl apply -f https://raw.githubusercontent.com/istio/istio/refs/heads/master/samples/sleep/sleep.yaml -n ns1
 ```
 
-Test connectivity:
+### Test HTTP Traffic (Port 80)
+
+Test HTTP connectivity:
 
 ```bash
-kubectl exec deploy/sleep -n ns1 -- curl httpbingo.org/headers
+kubectl exec deploy/sleep -n ns1 -- curl http://httpbingo.org/headers
 ```
 You should see a json output with header information.
 
@@ -197,11 +233,14 @@ Check logs in the Egress Gateway:
 kubectl logs deploy/egress-gateway -n common-infrastructure
 ```
 
-Example output:
+Example output for HTTP:
 
 ```
-2025-12-05T20:10:43.445524Z     info    request gateway=common-infrastructure/egress-gateway listener=waypoint/common-infrastructure/egress-gateway route=waypoint-default-dfp endpoint=httpbingo.org:80 src.addr=10.40.3.52:39116 http.method=GET http.host=httpbingo.org http.path=/headers http.version=HTTP/1.1 http.status=200 protocol=http duration=553ms
+2026-02-01T16:31:40.373112Z    info    request gateway=common-infrastructure/egress-gateway listener=waypoint route=common-infrastructure/_waypoint-default src.addr=10.40.0.16:38758 http.method=GET http.host=httpbingo.org http.path=/headers http.version=HTTP/1.1 http.status=403 protocol=http reason=DirectResponse duration=49ms caller={"address": "10.40.0.16", "port": 38758, "identity": {"trustDomain": "cluster.local", "namespace": "ns1", "serviceAccount": "sleep"}, "subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"], "issuer": "O=rvennam-egress-agw", "subject": "", "subjectCn": ()}
+
 ```
+
+Notice the identity of the caller: `"subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"]`
 
 Check logs in the Squid Proxy:
 
@@ -209,34 +248,78 @@ Check logs in the Squid Proxy:
 kubectl logs deploy/squid-proxy -n squid
 ```
 
-Example output:
+Example output for HTTP (notice it's a regular GET request, NOT CONNECT):
 ```
-1764965448.445   5552 10.40.3.47 TCP_TUNNEL/200 811 CONNECT httpbingo.org:80 - HIER_DIRECT/66.241.125.232 -
+1769964907.500    553 10.40.3.34 TCP_MISS/200 1881 GET http://httpbingo.org/headers - HIER_DIRECT/66.241.125.232 application/json
 ```
 
----
+**Validation:**
+Verify that the Squid log shows `GET` (NOT `CONNECT`) for HTTP requests. If you see `CONNECT` for port 80 traffic, the agentgateway is not configured correctly as a forward proxy, and you may encounter "tunnel failed" errors with upstream proxies that restrict CONNECT on port 80.
+
+### Test HTTPS Traffic (Port 443)
+
+Test HTTPS connectivity:
+
+```bash
+kubectl exec deploy/sleep -n ns1 -- curl https://httpbingo.org/headers
+```
+You should see a json output with header information.
+
+Check logs in the Egress Gateway:
+
+```bash
+kubectl logs deploy/egress-gateway -n common-infrastructure
+```
+
+Example output for HTTPS:
+
+```
+2026-02-01T16:33:31.690811Z    info    request gateway=common-infrastructure/egress-gateway listener=waypoint route=common-infrastructure/_waypoint-default endpoint=httpbingo.org:443 src.addr=10.40.0.16:38758 tls.sni=httpbingo.org protocol=tcp duration=122ms caller={"address": "10.40.0.16", "port": 38758, "identity": {"trustDomain": "cluster.local", "namespace": "ns1", "serviceAccount": "sleep"}, "subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"], "issuer": "O=rvennam-egress-agw", "subject": "", "subjectCn": ()}
+
+```
+
+Again, note the identity of the caller `"subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"]` and 
+
+Check logs in the Squid Proxy for HTTPS (notice it uses CONNECT on port 443):
+
+```bash
+kubectl logs deploy/squid-proxy -n squid
+```
+
+Example output for HTTPS:
+```
+1769963611.690    117 10.40.3.34 TCP_TUNNEL/200 3325 CONNECT httpbingo.org:443 - HIER_DIRECT/66.241.125.232
+```
+
+**Validation:**
+Verify that the Squid log shows `CONNECT` for HTTPS requests on port 443. This is the expected and correct behavior for HTTPS traffic, allowing the encrypted connection to be tunneled through the proxy.
 
 
-## External Auth Server
+
+## External Auth Server 
+
+> Currently, this only works for HTTP Traffic. Feature to support HTTPS is coming.
 
 ```bash
 kubectl apply -f ext-auth-server.yml
 ```
 
-This ext auth server only allows connects with the header 
-Test connectivity:
+This ext auth server only allows requests with a specific header.
+
+### Test with HTTP Traffic
+
+Test without authorization header:
 
 ```bash
-kubectl exec deploy/sleep -n ns1 -- curl httpbingo.org/headers
+kubectl exec deploy/sleep -n ns1 -- curl http://httpbingo.org/headers
 ```
 
 You should see `external authorization failed`
 
-
 Try again with the header that will tell our ext auth server to allow the request:
 
 ```bash
-kubectl exec deploy/sleep -n ns1 -- curl httpbingo.org/headers -H "x-ext-authz: allow"
+kubectl exec deploy/sleep -n ns1 -- curl http://httpbingo.org/headers -H "x-ext-authz: allow"
 ```
 
 You should see a successful result, with an extra header:
@@ -255,7 +338,7 @@ kubectl logs deploy/ext-authz -n common-infrastructure
 Example output:
 
 ```
-2025/12/05 20:13:53 [gRPCv3][allowed]: httpbingo.org/headers, attributes: source:{address:{socket_address:{address:"10.40.3.52"  port_value:39116}}  principal:"spiffe://cluster.local/ns/ns1/sa/sleep"}  destination:{address:{socket_address:{address:"10.40.3.47"  port_value:15008}}}  request:{time:{seconds:1764965285  nanos:166653674}  http:{id:"4086db120dc5b2cf77c103853d8a28b8"  method:"GET"  headers:{key:"accept"  value:"*/*"}  headers:{key:"user-agent"  value:"curl/8.16.0"}  headers:{key:"x-ext-authz"  value:"allow"}  path:"/headers"  host:"httpbingo.org"  scheme:"https"  protocol:"HTTP/1.1"}}  tls_session:{}
+2026/02/01 16:35:51 [gRPCv3][allowed]: httpbingo.org/headers, attributes: source:{address:{socket_address:{address:"10.40.0.16"  port_value:38758}}  principal:"spiffe://cluster.local/ns/ns1/sa/sleep"}  destination:{address:{socket_address:{address:"10.40.3.34"  port_value:15008}}}  request:{time:{seconds:1769963183  nanos:575195592}  http:{id:"01edd78b9bd910b86715fad8bef45fe2"  method:"GET"  headers:{key:"accept"  value:"*/*"}  headers:{key:"user-agent"  value:"curl/8.16.0"}  headers:{key:"x-ext-authz"  value:"allow"}  path:"/headers"  host:"httpbingo.org"  scheme:"https"  protocol:"HTTP/1.1"}}  tls_session:{}
 ```
 
 Note that you have access to the client identity (`spiffe://cluster.local/ns/ns1/sa/sleep`), which allows you to make auth decisions dynamically.
