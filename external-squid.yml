@@ -1,0 +1,27 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: external-squid-proxy
+  namespace: common-infrastructure
+spec:
+  static:
+    host: squid-proxy.squid.svc.cluster.local # Change to your squid service DNS name
+    port: 3128
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: httpbingo-tunnel
+  namespace: common-infrastructure
+spec:
+  targetRefs:
+    - name: httpbingo.org
+      kind: Hostname
+      group: networking.istio.io
+  backend:
+    tunnel:
+      backendRef:
+        name: external-squid-proxy
+        kind: AgentgatewayBackend
+        group: agentgateway.dev
+        namespace: common-infrastructure
