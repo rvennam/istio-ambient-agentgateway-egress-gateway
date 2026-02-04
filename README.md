@@ -5,12 +5,7 @@
 This repository demonstrates how to run [Agentgateway](https://docs.solo.io/agentgateway/2.1.x/) as an egress gateway for Istio traffic, including external authentication with source identity and Dynamic Forward Proxy (DFP) with CONNECT to an external proxy.
 
 
-The agentgateway is configured to operate as an **explicit forward proxy**, which is essential for compatibility with enterprise upstream proxies:
-
-- **HTTP (port 80)**: Uses standard HTTP methods (GET, POST, etc.) - NOT CONNECT
-- **HTTPS (port 443)**: Uses CONNECT method to tunnel encrypted traffic
-
-This approach is required because most enterprise proxies (including Squid) restrict the CONNECT method to port 443 only for security reasons. Attempting to use CONNECT on port 80 will result in "tunnel failed" errors.
+The agentgateway is configured to operate as an **explicit forward proxy**, which is essential for compatibility with enterprise upstream proxies.
 
 
 **HTTP (Port 80):** 
@@ -24,14 +19,15 @@ This approach is required because most enterprise proxies (including Squid) rest
 - Uses CONNECT method to tunnel encrypted traffic
 - Squid proxy establishes CONNECT tunnel for TLS
 - Result: HTTPS traffic flows successfully through egress gateway → squid → internet
-> Current Limitation: Ext Auth Policy
+- Current Limitation: Ext Auth Policy
 
 ---
 
-## Install Gloo Mesh Istio
+## Install Solo Enterprise for Istio
 
 ```bash
 export GLOO_MESH_LICENSE_KEY=<license_key>
+export AGENTGATEWAY_LICENSE_KEY=<license_key>
 
 export ISTIO_VERSION=1.28.1-patch0
 export ISTIO_IMAGE=${ISTIO_VERSION}-solo
@@ -133,15 +129,6 @@ proxy:
   clusterDomain: cluster.local
 terminationGracePeriodSeconds: 29
 variant: distroless
-egressPolicies:
-- namespaces:
-  - common-infrastructure
-  policy: Passthrough
-- gateway: egress-gateway.common-infrastructure.svc.cluster.local
-  matchCidrs:
-  - 0.0.0.0/0
-  - ::/0
-  policy: Gateway
 EOF
 ```
 
@@ -200,13 +187,21 @@ kubectl label ns common-infrastructure istio.io/use-waypoint=egress-gateway
 kubectl apply -f agentgateway.yml
 ```
 
+#### ServiceEntry for static host: httpbingo.org
+
 Create a ServiceEntry for `httpbingo.org` with both HTTP and HTTPS ports, and an AgentgatewayPolicy to configure the tunnel to Squid:
 
 ```bash
 kubectl apply -f httpbin-se.yml
 ```
 
-**Note:** The ServiceEntry now uses DNS resolution instead of STATIC. For non-wildcard hostnames like `httpbingo.org`, DNS mode works even if your cluster can't resolve external DNS - it won't actually resolve. For wildcard hostnames like `*.github.com`, use DYNAMIC_DNS resolution (Requries newer version of Istio).
+### ServiceEntry for wildcard hosts: *.github.com
+
+Create a wildcard ServiceEntry for `*.github.com` with both HTTP and HTTPS ports, and an AgentgatewayPolicy to configure the tunnel to Squid:
+
+```bash
+kubectl apply -f github-wildcard-se.yml
+```
 
 
 
@@ -258,7 +253,7 @@ Verify that the Squid log shows `GET` (NOT `CONNECT`) for HTTP requests. If you 
 
 ### Test HTTPS Traffic (Port 443)
 
-Test HTTPS connectivity:
+#### Test HTTPS connectivity to httpbingo.org:
 
 ```bash
 kubectl exec deploy/sleep -n ns1 -- curl https://httpbingo.org/headers
@@ -278,7 +273,7 @@ Example output for HTTPS:
 
 ```
 
-Again, note the identity of the caller `"subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"]` and 
+Again, note the identity of the caller `"subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"]` 
 
 Check logs in the Squid Proxy for HTTPS (notice it uses CONNECT on port 443):
 
@@ -294,6 +289,37 @@ Example output for HTTPS:
 **Validation:**
 Verify that the Squid log shows `CONNECT` for HTTPS requests on port 443. This is the expected and correct behavior for HTTPS traffic, allowing the encrypted connection to be tunneled through the proxy.
 
+#### Test HTTPS connectivity to wildcard *.github.com:
+
+```bash
+kubectl exec deploy/sleep -n ns1 -- curl https://gist.github.com/rvennam
+```
+You should see a json output with header information.
+
+Check logs in the Egress Gateway:
+
+```bash
+kubectl logs deploy/egress-gateway -n common-infrastructure
+```
+
+Example output for HTTPS:
+
+```
+2026-02-04T20:24:50.163695Z     info    request gateway=common-infrastructure/egress-gateway listener=waypoint route=common-infrastructure/_waypoint-default endpoint=gist.github.com:443 src.addr=10.40.1.12:51702 tls.sni=gist.github.com protocol=tcp duration=441ms caller={"address": "10.40.1.12", "port": 51702, "identity": {"trustDomain": "cluster.local", "namespace": "ns1", "serviceAccount": "sleep"}, "subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"], "issuer": "O=rvennam-egress-agw", "subject": "", "subjectCn": ()}
+```
+
+Again, note the identity of the caller `"subjectAltNames": ["spiffe://cluster.local/ns/ns1/sa/sleep"]` 
+
+Check logs in the Squid Proxy for HTTPS (notice it uses CONNECT on port 443):
+
+```bash
+kubectl logs deploy/squid-proxy -n squid
+```
+
+Example output for HTTPS:
+```
+1770236690.163    435 10.40.1.15 TCP_TUNNEL/200 187190 CONNECT gist.github.com:443 - HIER_DIRECT/140.82.113.4 -
+```
 
 
 ## External Auth Server 

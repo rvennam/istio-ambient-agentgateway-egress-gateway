@@ -1,0 +1,37 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: github-wildcard
+  namespace: common-infrastructure
+  labels:
+    istio.io/use-waypoint: egress-gateway
+spec:
+  hosts:
+  - "*.github.com"
+  location: MESH_EXTERNAL
+  resolution: DYNAMIC_DNS
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  - number: 443
+    name: https
+    protocol: TLS
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: github-tunnel
+  namespace: common-infrastructure
+spec:
+  targetRefs:
+    - name: "*.github.com"
+      kind: Hostname
+      group: networking.istio.io
+  backend:
+    tunnel:
+      backendRef:
+        name: squid-proxy
+        kind: Service
+        namespace: squid
+        port: 3128
