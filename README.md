@@ -2,6 +2,25 @@
 
 This workshop demonstrates how to route egress traffic through a corporate web proxy using [AgentGateway](https://docs.solo.io/agentgateway/2.1.x/) as an egress waypoint for Istio Ambient mesh.
 
+## Table of Contents
+
+- [The Problem](#the-problem)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Install Solo Enterprise Istio](#install-solo-enterprise-istio)
+- [Install AgentGateway](#install-agentgateway)
+- [Deploy Corporate Web Proxy](#deploy-corporate-web-proxy)
+- [Deploy the AgentGateway Egress Gateway](#deploy-the-agentgateway-egress-gateway)
+- [Configure External Services](#configure-external-services)
+- [Deploy Test Workload](#deploy-test-workload)
+- [Test: HTTPS Traffic to api.github.com](#test-https-traffic-to-apigithubcom)
+- [Test: HTTPS to *.github.com (Wildcard)](#test-https-to-githubcom-wildcard)
+- [Test: TLS Origination (HTTP in, HTTPS out)](#test-tls-origination-http-in-https-out)
+- [Test: Proxy Authentication Headers](#test-proxy-authentication-headers)
+- [Test: Split-Routing (No-Proxy Logic)](#test-split-routing-no-proxy-logic)
+- [External Auth Server (Identity-Aware Authorization)](#external-auth-server-identity-aware-authorization)
+- [TCP RBAC (Layer 4 Network Authorization)](#tcp-rbac-layer-4-network-authorization)
+
 ## The Problem
 
 Enterprise environments often have three network use cases:
