@@ -18,20 +18,20 @@ spec:
     name: https
     protocol: TLS
 ---
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayPolicy
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
 metadata:
   name: httpbingo-tunnel
   namespace: common-infrastructure
 spec:
   targetRefs:
-    - name: httpbingo.org
-      kind: Hostname
+    - name: httpbingo-static
+      kind: ServiceEntry
       group: networking.istio.io
   backend:
     tunnel:
       backendRef:
-        name: squid-proxy
+        name: corporate-proxy
         kind: Service
-        namespace: squid
+        namespace: corporate-proxy
         port: 3128
