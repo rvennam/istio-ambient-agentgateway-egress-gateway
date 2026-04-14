@@ -167,7 +167,7 @@ global:
   hub: ${REPO}
   tag: ${ISTIO_IMAGE}
   variant: distroless
-  platform: gke  # Set to your platform (gke, eks, etc.)
+  # platform: gke  # Uncomment for GKE
 profile: ambient
 EOF
 ```
