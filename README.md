@@ -1015,7 +1015,32 @@ Expected: 200 OK with JSON response — the policy doesn't affect httpbingo traf
 | `Deny` | Denylist — matching connections are rejected, everything else is allowed |
 | `Require` | All require rules must match (conjunctive across merged policies) |
 
-Example: deny a specific namespace while allowing everything else:
+### Policy examples
+
+**Allow only specific namespaces** — restrict egress to `production` and `staging` namespaces:
+
+```yaml
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: allow-prod-staging
+  namespace: common-infrastructure
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: egress-gateway
+  frontend:
+    networkAuthorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          - "source.identity.namespace in ['production', 'staging']"
+```
+
+This denies all egress traffic from any other namespace. Combine with per-ServiceEntry policies for fine-grained control — e.g., only `production` can reach `api.github.com`, while `staging` is limited to `httpbingo.org`.
+
+**Deny a specific namespace** — block `dev` namespace from external access while allowing everything else:
 
 ```yaml
 frontend:
@@ -1023,10 +1048,21 @@ frontend:
     action: Deny
     policy:
       matchExpressions:
-        - "source.identity.namespace == 'untrusted-ns'"
+        - "source.identity.namespace == 'dev'"
 ```
 
-Example: allow only traffic from the 10.x.x.x CIDR:
+**Combine namespace and service account** — only the `deployer` SA in `ci-cd` namespace can reach GitHub:
+
+```yaml
+frontend:
+  networkAuthorization:
+    action: Allow
+    policy:
+      matchExpressions:
+        - "source.identity.namespace == 'ci-cd' && source.identity.serviceAccount == 'deployer'"
+```
+
+**CIDR-based** — allow only traffic from the 10.x.x.x CIDR:
 
 ```yaml
 frontend:
